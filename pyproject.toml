@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kclearner"
+version = "0.1.0"
+description = "Reproducible framework for knowledge-component-aware sequential learner modeling."
+readme = "README.md"
+license = "MIT"
+license-files = ["Licence.txt"]
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.23"]
+
+[project.optional-dependencies]
+neural = ["torch>=2.0", "pykt-toolkit==0.0.38"]
+# Parquet reads and writes import pyarrow. No minimum version is pinned.
+parquet = ["pyarrow"]
+
+[project.scripts]
+kclearner = "kclearner.experiments.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

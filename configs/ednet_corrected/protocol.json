@@ -1,0 +1,162 @@
+{
+  "protocol_id": "ednet_corrected_publication_v1",
+  "device": "auto",
+  "dataset": {
+    "dataset_id": "ednet_kt1_corrected_v1",
+    "cohort_id": "ednet_kt1_dev5000",
+    "cohort_sha256": "d9bb296cef94ba4ca0fa80ac8da98b7179b537dbce14bcb7555d021423bcaf9b",
+    "split_id": "ednet_split_v1_solving_id_70_10_20",
+    "row_counts": {
+      "train": 806148,
+      "valid": 117184,
+      "test": 235031,
+      "eligible": 1158363
+    },
+    "files_sha256": {
+      "train": "7d0675ec7a14e9de49de35f4d2526334d003b559f4fd25dc425b03bc8eebaacb",
+      "valid": "a7eab63d1381feb2940f435d15c84eac47650f9dbff391893e739ac00b693b26",
+      "test": "91f5ab45978ec00bd237a8e17b17b74a583a19ee217c97f68f7b5ad860b31066"
+    }
+  },
+  "vocabulary": {
+    "vocab_id": "ednet_split_v1_train_valid_50k_drop_sentinel",
+    "source_population": "ednet_pilot_v1",
+    "source_partitions": ["train", "valid"],
+    "test_included": false,
+    "item_count": 12259,
+    "kc_count": 188,
+    "learner_count": 5000,
+    "item_ids_sha256": "6ed21bad1c6212819044fc71433cd4b824612b6a4fd8b4f3c97b2a07ed5fe4ac",
+    "kc_ids_sha256": "f17aefb8d1f0902a083b1ca6b95bec2d858efa223d3242923d6a54f71ca20287",
+    "learner_ids_sha256": "d9bb296cef94ba4ca0fa80ac8da98b7179b537dbce14bcb7555d021423bcaf9b",
+    "learner_index_rule": "position in the ordered dev5000 list, which is student_idx 0..4999 of the 50k sort",
+    "item_index_rule": "lexicographic question_id over ednet_split_v1 TRAIN+VALID",
+    "kc_index_rule": "ascending source KC integer after removing sentinel -1",
+    "test_item_oov_rows": 0,
+    "test_item_oov_types": 0
+  },
+  "sequence": {
+    "order": "raw eligible KT1 source order",
+    "bundle": "(learner_id, solving_id)",
+    "update": "predict every row in the bundle from the pre-bundle state, then update"
+  },
+  "metrics": ["nll", "brier", "auc"],
+  "phases": ["train", "valid", "test"],
+  "models": {
+    "irt": {
+      "family": "irt",
+      "kc_aware": false,
+      "deterministic": true,
+      "provenance_seed": 42,
+      "recipe": {
+        "theta_lr": 0.05,
+        "b_lr": 0.02,
+        "theta_l2": 0.0001,
+        "b_l2": 0.0001,
+        "learn_b": true,
+        "freeze_global_in_eval": true,
+        "use_residual": false,
+        "eta_r": 0.0
+      }
+    },
+    "ar_kt": {
+      "family": "ar_kt",
+      "kc_aware": true,
+      "deterministic": true,
+      "provenance_seed": 42,
+      "recipe": {
+        "eta_r": 0.2,
+        "use_time": false,
+        "residual_update": "ednet_token",
+        "theta_lr": 0.05,
+        "b_lr": 0.02,
+        "theta_l2": 0.0001,
+        "b_l2": 0.0001,
+        "learn_b": true,
+        "freeze_global_in_eval": true
+      }
+    },
+    "dkt_q": {
+      "family": "dkt",
+      "kc_aware": false,
+      "deterministic": false,
+      "recipe": {
+        "emb_size": 200,
+        "hidden_size": 200,
+        "num_lstm_layers": 1,
+        "dropout": 0.1,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "weight_decay": 0.0,
+        "effective_chunk_size": 256,
+        "tbptt_target_rows": 200,
+        "max_epochs": 200,
+        "early_stop_patience_epochs": 10,
+        "checkpoint_metric": "valid_auc",
+        "checkpoint_min_delta": 0.001,
+        "gradient_clipping": "NONE"
+      }
+    },
+    "dkt_qc": {
+      "family": "dkt",
+      "kc_aware": true,
+      "deterministic": false,
+      "recipe": {
+        "emb_size": 200,
+        "hidden_size": 200,
+        "num_lstm_layers": 1,
+        "dropout": 0.1,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "weight_decay": 0.0,
+        "effective_chunk_size": 256,
+        "tbptt_target_rows": 200,
+        "max_epochs": 200,
+        "early_stop_patience_epochs": 10,
+        "checkpoint_metric": "valid_auc",
+        "checkpoint_min_delta": 0.001,
+        "gradient_clipping": "NONE"
+      }
+    },
+    "dkvmn_q": {
+      "family": "dkvmn",
+      "kc_aware": false,
+      "deterministic": false,
+      "recipe": {
+        "dim_s": 64,
+        "size_m": 20,
+        "dropout": 0.2,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "weight_decay": 0.0,
+        "effective_chunk_size": 256,
+        "tbptt_target_rows": 200,
+        "max_epochs": 200,
+        "early_stop_patience_epochs": 10,
+        "checkpoint_metric": "valid_auc",
+        "checkpoint_min_delta": 0.001,
+        "gradient_clipping": "NONE"
+      }
+    },
+    "dkvmn_qc": {
+      "family": "dkvmn",
+      "kc_aware": true,
+      "deterministic": false,
+      "recipe": {
+        "dim_s": 64,
+        "size_m": 20,
+        "dropout": 0.2,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "weight_decay": 0.0,
+        "effective_chunk_size": 256,
+        "tbptt_target_rows": 200,
+        "max_epochs": 200,
+        "early_stop_patience_epochs": 10,
+        "checkpoint_metric": "valid_auc",
+        "checkpoint_min_delta": 0.001,
+        "gradient_clipping": "NONE"
+      }
+    }
+  }
+}

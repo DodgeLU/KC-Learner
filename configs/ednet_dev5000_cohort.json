@@ -1,0 +1,11 @@
+{
+  "cohort_id": "ednet_kt1_dev5000",
+  "preprocessing_version": "ednet_kt1_corrected_v1",
+  "learner_count": 5000,
+  "selection_rule": "first 5000 user_ids in lexicographic order over the unique user_id values of ednet_split_v1 TRAIN union VALID",
+  "ordered_learner_ids_sha256": "d9bb296cef94ba4ca0fa80ac8da98b7179b537dbce14bcb7555d021423bcaf9b",
+  "hash_encoding": "sha256 of newline-joined ordered ids, no trailing newline",
+  "first_user_id": "u100004",
+  "last_user_id": "u171592",
+  "user_id_list": "generated locally as generated/ednet_kt1_corrected_v1/dev5000_users.txt and not packaged"
+}
