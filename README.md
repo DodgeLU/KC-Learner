@@ -229,7 +229,11 @@ integration/            optional local regression; skips if artifacts are absent
 
 ## Citation
 
-Cite this software with the metadata in [`CITATION.cff`](CITATION.cff). A repository URL and a Zenodo DOI are not in that file yet. Add them after the GitHub release is archived.
+If you use KC-Learner in research, please cite the archived software release:
+
+Fu X, Chen Z, Lu W. KC-Learner. Version 0.1.0. Zenodo. https://doi.org/10.5281/zenodo.23227279
+
+Citation metadata are also available in [`CITATION.cff`](CITATION.cff).
 
 ## License
 

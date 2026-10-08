@@ -22,3 +22,7 @@ kclearner = "kclearner.experiments.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.urls]
+Repository = "https://github.com/DodgeLU/KC-Learner"
+Archive = "https://doi.org/10.5281/zenodo.23227279"
