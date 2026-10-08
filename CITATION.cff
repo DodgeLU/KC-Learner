@@ -4,15 +4,16 @@ title: KC-Learner
 type: software
 version: 0.1.0
 license: MIT
+repository-code: https://github.com/DodgeLU/KC-Learner
 authors:
-  - given-names: XUEJING
-    family-names: FU
-  - given-names: ZHEN
-    family-names: CHEN
-  - given-names: WENTAO
-    family-names: LU
+  - given-names: XueJing
+    family-names: Fu
+  - given-names: Zhen
+    family-names: Chen
+  - given-names: Wentao
+    family-names: Lu
     email: luwentao@sairi.com.cn
 contact:
-  - given-names: WENTAO
-    family-names: LU
+  - given-names: Wentao
+    family-names: Lu
     email: luwentao@sairi.com.cn
