@@ -2,7 +2,7 @@
 
 Reproducible framework for knowledge-component-aware sequential learner modeling across heterogeneous model representations.
 
-The Python package name is `kclearner`. The version recorded in `pyproject.toml` and `kclearner.__version__` is `0.1.0`.
+The Python package name is `kclearner`. The version recorded in `pyproject.toml` and `kclearner.__version__` is `0.2.0`. The archived Zenodo citation remains Version 0.1.0.
 
 ## Overview
 
@@ -29,13 +29,34 @@ The families do not share one internal update rule.
 - Recurrent: `dkt_q`, `dkt_qc`
 - Memory-augmented: `dkvmn_q`, `dkvmn_qc`
 
-`Q` variants do not consume knowledge-component ids. `QC` variants do. IRT and AR-KT are deterministic; seed 42 is stored as provenance only. The four neural variants require a publication seed of 42, 43, or 44. Their LSTM and DKVMN memory modules come from `pykt-toolkit==0.0.38`.
+`Q` variants do not consume knowledge-component ids. `QC` variants do. IRT and AR-KT are deterministic; seed 42 is stored as provenance only. Formal neural runs accept only the frozen publication seeds: EdNet `42, 43, 44` and ASSISTments `42, 43, 44, 45, 46`. Dry-run and smoke may use another integer seed, and those runs set `publication_protocol` to false. LSTM and DKVMN modules come from `pykt-toolkit==0.0.38` when the neural extra is installed.
 
 ## Supported datasets
 
 - EdNet-KT1, through the corrected adapter `ednet_kt1_corrected_v1`
 - ASSISTments 2017, through `load_assistments2017_main_v1`
 - Synthetic interactions from `make_toy_interactions()`
+
+## Extending KC-Learner
+
+KC-Learner can run two kinds of extension beside the reference datasets and the six reference models:
+
+1. External canonical datasets.
+2. External learner-model adapters.
+
+An external dataset enters only after the user has turned raw records into the canonical interaction contract. KC-Learner does not read an arbitrary raw archive and infer that contract. An external model enters only by implementing one of the two adapter contracts. A Python class that can be imported is not, by itself, a formal experiment.
+
+The software guarantees controlled execution and comparison under the contracts that the dataset and the adapter declare. It does not guarantee that every model works well on every dataset, that every external dataset is automatically compatible, or that an external implementation generalizes.
+
+Reference EdNet and ASSISTments runs stay on their existing commands. They are not migrated onto the external adapter path.
+
+- [External dataset contract](docs/external_dataset_contract.md)
+- [External model adapter](docs/external_model_adapter.md)
+- [External formal workflow](docs/external_formal_workflow.md)
+
+`examples/toy_streaming_adapter.py` and `examples/toy_neural_adapter.py` show the two adapter shapes. They are architecture demonstrations. They are not benchmark models, scientific performance results, or replacements for IRT, AR-KT, DKT, or DKVMN.
+
+Non-formal external TRAIN then VALID is available as `run-external`. The formal external freeze and TEST workflow is a Python API, documented in the formal-workflow note. It has no CLI command.
 
 ## Data availability and third-party datasets
 
@@ -47,15 +68,15 @@ These datasets are third-party resources. The KC-Learner software license does n
 
 The provider repository is [riiid/ednet](https://github.com/riiid/ednet). Its README publishes the KT1 archive link `https://bit.ly/ednet_kt1` and the contents archive link `https://bit.ly/ednet-content`. That README states that the dataset is released under Creative Commons Attribution-NonCommercial 4.0 International for research purposes. KC-Learner does not restate that statement as its own license grant.
 
-KT1 is a directory of per-user files named `{user_id}.csv`. The contents archive supplies the question table with columns `question_id`, `bundle_id`, `explanation_id`, `correct_answer`, `part`, `tags`, and `deployed_at`. Pass that questions CSV to the adapter. The fixture loader is:
+KT1 is a directory of per-user files named `{user_id}.csv`. The contents archive supplies the question table with columns `question_id`, `bundle_id`, `explanation_id`, `correct_answer`, `part`, `tags`, and `deployed_at`. Pass that questions CSV to the adapter. Required interaction columns are `user_id`, `timestamp`, `solving_id`, `question_id`, and `user_answer`. Preparation reads a directory of `{user_id}.csv` files plus the questions CSV. It does not ship a user-id list.
 
-```python
-from kclearner import load_ednet_kt1_interactions
-
-result = load_ednet_kt1_interactions("KT1.csv", "questions.csv")
+```bash
+python -m kclearner.experiments.cli prepare --dataset ednet_kt1 --raw-dir /path/to/KT1 --questions /path/to/questions.csv
 ```
 
-Required interaction columns are `user_id`, `timestamp`, `solving_id`, `question_id`, and `user_answer`. The corrected cohort builder `kclearner.data.ednet_corrected.build_corrected_rows` reads `raw_root/{user_id}.csv` plus the questions CSV. `write_corrected_dataset` writes a local directory, by convention `generated/ednet_kt1_corrected_v1/`, containing `dev5000_users.txt`, `manifest.json`, `publication_vocab.json`, and `train.parquet`, `valid.parquet`, and `test.parquet`. That directory stays on the machine that built it.
+`prepare` requires the parquet extra (`pyarrow`). The command writes `generated/ednet_kt1_corrected_v1/` unless `--output-dir` is set. It applies the historical frozen 50k sampler, then the dev5000 cohort. The publication vocabulary is the 50k TRAIN+VALID item and KC sets. The dataset logical hash does not include the model, seed, device, or Parquet bytes. A later prepare of the same inputs reuses a completed directory when the identity matches. `--rebuild` is the explicit rebuild switch.
+
+Historical EdNet IRT and AR-KT checkpoints were trained on `ednet_kt1_preproc_v1` split parquets, not on this corrected order. Those predictive numbers are not an oracle for the corrected dataset. See `docs/historical_psychometric_outputs.md`.
 
 The question table's `bundle_id` is content identity. The interaction bundle is `(learner_id, solving_id)`.
 
@@ -67,7 +88,15 @@ https://sites.google.com/view/assistmentsdatamining/dataset
 
 That page states that access requires signup, that the dataset link is sent by email, and that use requires agreement to the provider's Terms of Use. The page text fetched for this release does not include a stable form URL, so this README does not invent one.
 
-`load_assistments2017_main_v1` takes a CSV path chosen by the caller. It expects columns `student_id`, `problem_id`, `skill_id`, `correct`, `timestamp`, and `attempt_count`. There is no required path inside this repository. Blank skills are dropped and counted. They are not replaced with an invented knowledge-component id. This loader does not score TEST.
+`load_assistments2017_main_v1` expects columns `student_id`, `problem_id`, `skill_id`, `correct`, `timestamp`, and `attempt_count`. There is no required path inside this repository. Blank skills are dropped and counted.
+
+```bash
+python -m kclearner.experiments.cli prepare --dataset assistments2017 --raw-file /path/to/primary.csv
+```
+
+This also requires `pyarrow`. The default output is `generated/assistments2017_main_v1/`. Rows are ordered by `student_id`, then `timestamp`, then source-file order. The execution bundle is `(student_id, timestamp)`.
+
+On ASSISTments TEST, 949 item-OOV rows stay in the IRT and AR-KT sequence, use problem index 0, and are excluded from metrics. DKT and DKVMN drop those same rows from state and from metrics. The two rules are intentionally different.
 
 ## Installation
 
@@ -90,6 +119,10 @@ pip install -e ".[parquet]"
 ```
 
 The console script is `kclearner`. If that script is not on `PATH`, use `python -m kclearner.experiments.cli`.
+
+Core import does not import torch or pyarrow. `prepare`, and any run that reads a prepared Parquet dataset, imports pyarrow. Neural model construction imports torch and pyKT only for `dkt_q`, `dkt_qc`, `dkvmn_q`, and `dkvmn_qc`.
+
+One CPU smoke that completed on prepared EdNet data used Python 3.10.18, torch `2.13.0+cpu`, and pykt-toolkit `0.0.38`, with CUDA unavailable. That check covered all four neural models for one epoch, checkpoint write, and checkpoint restore. It does not promise the same bitwise result on every torch build or GPU. A machine that cannot load torch is an environment problem, not a change to the model mathematics.
 
 ## Requirements
 
@@ -153,7 +186,26 @@ The default dataset directory is `generated/ednet_kt1_corrected_v1`. That direct
 python -m kclearner.experiments.cli run --model dkt_q --seed 42 --device cpu --dry-run
 ```
 
-`--smoke` runs a few source-order bundles and writes a non-publication artifact. Omitting both `--dry-run` and `--smoke` calls the formal path, which this CLI refuses unless `--authorize-formal` is passed. Formal execution is not the quick start, and it does not by itself authorize TEST scoring.
+`--dry-run`, `--smoke`, and `--authorize-formal` are mutually exclusive. `--smoke` runs a few source-order bundles and writes a non-publication artifact. Omitting all three stops before training. `--authorize-formal` authorizes TRAIN then VALID only. It does not authorize TEST.
+
+Dataset logical identity is fixed before the model, seed, optimizer, or device is chosen. Changing those run settings does not change the prepared dataset hash.
+
+```bash
+python -m kclearner.experiments.cli run --dataset assistments2017 --model irt --dry-run --dataset-dir /path/to/prepared
+python -m kclearner.experiments.cli run --dataset ednet_kt1 --model dkt_q --seed 7 --smoke --device cpu --dataset-dir /path/to/prepared
+```
+
+Seed 7 is an exploratory smoke seed. It is outside the EdNet publication set, and the artifact records `publication_protocol: false`.
+
+## Freeze and TEST
+
+Formal TRAIN and VALID write `freeze_manifest.json`. TEST is a separate command. It requires the freeze, the TRAIN-only checkpoint, and `--enable-test-execution`. There is no `--phase test` shortcut.
+
+```bash
+python -m kclearner.experiments.cli evaluate --dataset assistments2017 --model irt --freeze /path/to/freeze_manifest.json --dataset-dir /path/to/prepared --checkpoint /path/to/state_train_only.npz --output-dir /path/to/test-output --enable-test-execution
+```
+
+Psychometric TEST replays VALID from the TRAIN-only state and stops before TEST if that replay misses the frozen VALID metrics. Neural TEST checks freeze identity and then continues the TRAIN then VALID state into TEST. It does not add a numerical VALID replay gate. An existing TEST result for the same freeze id is left in place.
 
 ## Sequential and bundle semantics
 
@@ -182,9 +234,34 @@ These artifacts are marked `publication: false`. `runs/` is gitignored.
 
 ## Reproducibility and provenance
 
-Each resolved run has a SHA-256 `config_hash` over the canonical config JSON. Metadata records the package version, dataset id, cohort hash, vocabulary hashes, seed role, and the resolved device. IRT and AR-KT record seed 42 as provenance only. Neural runs use the requested publication seed.
+Preparation identity is a logical hash of protocol, cohort, split counts, vocabulary, and ordered interactions. It is not a hash of Parquet bytes, paths, or clocks. Two files can differ as bytes and still be the same dataset. Neural training is seed- and environment-dependent. This package does not claim bitwise identity across hardware or torch builds.
+
+Each resolved run has a SHA-256 `config_hash` over the canonical config JSON. Metadata records the package version, dataset id, cohort hash, vocabulary hashes, seed role, requested device, and resolved device. IRT and AR-KT always execute on CPU. A CUDA request for those models is recorded and is not treated as a neural device. Neural `cuda` fails when CUDA is absent. Formal neural runs use a publication seed. Dry-run and smoke do not.
 
 `project_c/` is not part of this repository. It is an external read-only regression reference when a local checkout exists. Integration tests that need it skip when those files are absent.
+
+## Reviewer checklist
+
+Without third-party data, after `pip install -e .`:
+
+```bash
+python -c "import kclearner, kclearner.data"
+python examples/toy_dataset.py
+python -m unittest discover -s tests -v
+python -m kclearner.experiments.cli prepare --help
+python -m kclearner.experiments.cli run --help
+python -m kclearner.experiments.cli evaluate --help
+```
+
+Success indicators: the import prints nothing and returns, the toy example prints `interactions=7 targets=7 ok=True`, unit tests finish with failures=0, and each `--help` lists the subcommand. Neural tests skip when torch is not installed. That skip is not a core-install failure.
+
+With EdNet, install the parquet extra, run the `prepare` command above, then:
+
+```bash
+python -m kclearner.experiments.cli run --dataset ednet_kt1 --model irt --dry-run --dataset-dir generated/ednet_kt1_corrected_v1
+```
+
+With ASSISTments, prepare from the provider CSV, then the same `run` form with `--dataset assistments2017`. Reviewers do not need full publication training or TEST to verify the package.
 
 ## Testing
 
@@ -216,11 +293,11 @@ See `integration/FIXTURE_MANIFEST.md`. That command is not required to install o
 src/kclearner/          package
   data/                 schema, validation, toy data, adapters
   models/               IRT, AR-KT, DKT, DKVMN
-  experiments/          protocol, CLI, dry-run, smoke
+  experiments/          protocol, CLI, dry-run, smoke, external contracts
   sequence/             bundle pre-state contract
-configs/                corrected-EdNet protocol
-docs/                   protocol notes and the legacy reference
-examples/toy_dataset.py synthetic quick start
+configs/                corrected-EdNet and ASSISTments protocols
+docs/                   protocol notes, logical identity, external contracts
+examples/               toy interactions and two architecture-only adapters
 tests/                  synthetic unit and semantic tests
 integration/            optional local regression; skips if artifacts are absent
 ```
@@ -247,7 +324,9 @@ Questions about KC-Learner: luwentao@sairi.com.cn
 
 ## Limitations / scope
 
-- The public interface is the Python package, the toy example, and the corrected-EdNet CLI above. There is no separate YAML experiment schema.
+- The archived citation is v0.1.0. This working tree's prepare/freeze/evaluate workflow is not that archive.
+- The public interface is the Python package, the examples, and the CLI above. External formal freeze and TEST are Python functions, not CLI commands. Protocol values live in `configs/*/protocol.json`.
+- Extensions run under declared contracts. They do not add automatic raw-dataset interpretation or a claim that an external model generalizes. See [Extending KC-Learner](#extending-kc-learner).
 - Default CLI invocation without `--dry-run` or `--smoke` does not run a full experiment; the formal entry point is blocked unless explicitly authorized.
 - Corrected-EdNet dry-run and smoke require a locally built dataset directory that is not distributed here.
 - Neural training depends on the optional PyTorch and pyKT extra.

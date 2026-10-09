@@ -1,8 +1,9 @@
-"""Thin corrected-EdNet run orchestration.
+"""Public TRAIN/VALID orchestration.
 
-Dry-run checks identity and can construct a model. Smoke writes a
-marked-non-publication artifact from a few bundles. Formal full-data
-training and TEST metrics are refused here.
+EdNet and ASSISTments share this entry point. Each dataset keeps its
+own prepared-data reader. Dry-run checks identity and can construct a
+model. Smoke writes a marked-non-publication artifact. ``--authorize-formal``
+is TRAIN then VALID. TEST scoring is not started here.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import numpy as np
 from kclearner import __version__
 from kclearner.data.ednet_corrected import cohort_id_hash, file_sha256
 from kclearner.experiments.config import NEURAL_MODELS, RunConfig
-from kclearner.experiments.environment import environment_report
+from kclearner.experiments.environment import environment_report, execution_device
 from kclearner.experiments.factory import create_model
 from kclearner.models.dkt import DKTRow
 from kclearner.models.metrics import metric_auc, metric_brier, metric_nll
@@ -76,7 +77,12 @@ def masked_metrics(
     }
 
 
-def verify_dataset_manifest(manifest: Mapping[str, Any], protocol: Mapping[str, Any]) -> None:
+def verify_dataset_manifest(
+    manifest: Mapping[str, Any],
+    protocol: Mapping[str, Any],
+    *,
+    dataset_dir: str | Path | None = None,
+) -> None:
     expected = protocol["dataset"]
     if manifest.get("preprocessing_version") != expected["dataset_id"]:
         raise IdentityError("dataset preprocessing version mismatch")
@@ -89,9 +95,39 @@ def verify_dataset_manifest(manifest: Mapping[str, Any], protocol: Mapping[str, 
         if int(counts.get(split, -1)) != int(count):
             raise IdentityError(f"{split} row count {counts.get(split)} != {count}")
     recorded = manifest.get("files_sha256") or {}
-    for name, digest in expected["files_sha256"].items():
-        if recorded.get(name) != digest:
-            raise IdentityError(f"{name} manifest hash mismatch")
+    expected_files = expected.get("files_sha256") or {}
+    byte_match = all(recorded.get(name) == digest for name, digest in expected_files.items())
+    if byte_match:
+        return
+    logical = manifest.get("dataset_logical_identity")
+    if not isinstance(logical, dict):
+        name = next(iter(expected_files), "parquet")
+        raise IdentityError(f"{name} manifest hash mismatch")
+    if logical.get("cohort_hash") != expected["cohort_sha256"]:
+        raise IdentityError("logical cohort hash mismatch")
+    vocabulary = protocol["vocabulary"]
+    if logical.get("item_vocabulary_hash") != vocabulary["item_ids_sha256"]:
+        raise IdentityError("logical item vocabulary hash mismatch")
+    if logical.get("kc_vocabulary_hash") != vocabulary["kc_ids_sha256"]:
+        raise IdentityError("logical KC vocabulary hash mismatch")
+    splits = {
+        item.get("split_id"): item
+        for item in logical.get("splits") or []
+        if isinstance(item, dict)
+    }
+    for split, count in expected["row_counts"].items():
+        if split == "eligible":
+            continue
+        got = splits.get(split) or {}
+        if int(got.get("row_count", -1)) != int(count):
+            raise IdentityError(f"logical {split} row count mismatch")
+    if dataset_dir is None:
+        raise IdentityError("logical identity requires the prepared directory")
+    for name, digest in expected_files.items():
+        del digest
+        actual = file_sha256(Path(dataset_dir) / f"{name}.parquet")
+        if recorded.get(name) != actual:
+            raise IdentityError(f"{name}.parquet byte hash mismatch")
 
 
 def verify_vocab_file(payload: Mapping[str, Any], protocol: Mapping[str, Any]) -> PublicationVocab:
@@ -127,12 +163,23 @@ def dry_run(
     dataset_dir: str | Path,
     runs_dir: str | Path,
     construct_model: bool = True,
+    requested_device: str = "cpu",
 ) -> dict[str, Any]:
     """Validate identity and construct the model. Does not train."""
 
+    if config.protocol.get("protocol_id") == "ASSISTMENTS2017_MAIN_V1":
+        from kclearner.experiments.assistments_run import dry_run_assistments
+
+        return dry_run_assistments(
+            config,
+            dataset_dir=dataset_dir,
+            runs_dir=runs_dir,
+            construct_model=construct_model,
+            requested_device=requested_device,
+        )
     dataset = Path(dataset_dir)
     manifest = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
-    verify_dataset_manifest(manifest, config.protocol)
+    verify_dataset_manifest(manifest, config.protocol, dataset_dir=dataset)
     vocab_payload = json.loads((dataset / "publication_vocab.json").read_text(encoding="utf-8"))
     vocab = verify_vocab_file(vocab_payload, config.protocol)
     learners = (dataset / "dev5000_users.txt").read_text(encoding="utf-8").splitlines()
@@ -140,7 +187,18 @@ def dry_run(
     for name in ("train.parquet", "valid.parquet", "test.parquet"):
         if not (dataset / name).is_file():
             raise IdentityError(f"missing {name}")
-    env = environment_report()
+    devices = execution_device(config.model, requested_device)
+    if config.model in NEURAL_MODELS:
+        devices = {
+            "requested_device": requested_device,
+            "resolved_device": "not_executed",
+            "execution_mode": "neural",
+        }
+    env = environment_report(
+        devices["requested_device"],
+        devices["resolved_device"],
+        execution_mode=devices["execution_mode"],
+    )
     model_ready = False
     dependency_error = None
     if construct_model:
@@ -163,8 +221,11 @@ def dry_run(
     run_dir.mkdir(parents=True, exist_ok=True)
     report = {
         "status": "dry_run",
+        "publication_protocol": False,
         "publication": False,
         "notice": NOT_FOR_PUBLICATION,
+        "requested_device": devices["requested_device"],
+        "resolved_device": devices["resolved_device"],
         "run_id": config.run_id,
         "config_hash": config.config_hash(),
         "model_ready": model_ready,
@@ -187,13 +248,30 @@ def smoke_run(
     dataset_dir: str | Path,
     runs_dir: str | Path,
     max_rows: int = 24,
+    requested_device: str = "cpu",
 ) -> dict[str, Any]:
     """Run a few source-order bundles through the validated model path."""
 
     if max_rows > 64:
         raise FormalRunBlocked("smoke row cap is 64")
+    if config.protocol.get("protocol_id") == "ASSISTMENTS2017_MAIN_V1":
+        from kclearner.experiments.assistments_run import smoke_assistments
+
+        return smoke_assistments(
+            config,
+            dataset_dir=dataset_dir,
+            runs_dir=runs_dir,
+            max_rows=max_rows,
+            requested_device=requested_device,
+        )
     dataset = Path(dataset_dir)
-    preflight = dry_run(config, dataset_dir=dataset, runs_dir=runs_dir, construct_model=True)
+    preflight = dry_run(
+        config,
+        dataset_dir=dataset,
+        runs_dir=runs_dir,
+        construct_model=True,
+        requested_device=requested_device,
+    )
     if not preflight["model_ready"]:
         raise IdentityError(preflight["dependency_error"] or "model was not constructed")
     vocab_payload = json.loads((dataset / "publication_vocab.json").read_text(encoding="utf-8"))
@@ -218,10 +296,21 @@ def smoke_run(
         )
         model.save_state(run_dir / "checkpoint.npz")
     else:
-        predictions, metrics = _smoke_neural(config, vocab, rows, run_dir)
+        predictions, metrics = _smoke_neural(
+            config,
+            vocab,
+            rows,
+            run_dir,
+            requested_device=requested_device,
+        )
     _write_predictions(run_dir / "predictions.parquet", predictions, config)
     (run_dir / "metrics.json").write_text(
-        json.dumps({"publication": False, "notice": NOT_FOR_PUBLICATION, "metrics": metrics}, indent=2)
+        json.dumps({
+            "publication_protocol": False,
+            "publication": False,
+            "notice": NOT_FOR_PUBLICATION,
+            "metrics": metrics,
+        }, indent=2)
         + "\n",
         encoding="utf-8",
     )
@@ -234,7 +323,14 @@ def smoke_run(
         run_dir,
         config,
         phase="smoke",
-        extra={"publication": False, "notice": NOT_FOR_PUBLICATION, "rows": len(rows)},
+        extra={
+            "publication_protocol": False,
+            "publication": False,
+            "notice": NOT_FOR_PUBLICATION,
+            "rows": len(rows),
+            "requested_device": execution_device(config.model, requested_device)["requested_device"],
+            "resolved_device": execution_device(config.model, requested_device)["resolved_device"],
+        },
     )
     (run_dir / "config.json").write_text(config.canonical_json(), encoding="utf-8")
     (run_dir / "dataset_manifest.json").write_text(
@@ -245,16 +341,34 @@ def smoke_run(
         json.dumps(config.protocol["vocabulary"], indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (run_dir / "environment.json").write_text(
-        json.dumps(environment_report(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return {"run_id": run_dir.name, "rows": len(rows), "metrics": metrics, "publication": False}
+    if config.model in ("irt", "ar_kt"):
+        smoke_devices = execution_device(config.model, requested_device)
+        (run_dir / "environment.json").write_text(
+            json.dumps(
+                environment_report(
+                    smoke_devices["requested_device"],
+                    smoke_devices["resolved_device"],
+                    execution_mode=smoke_devices["execution_mode"],
+                ),
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    return {
+        "run_id": run_dir.name,
+        "rows": len(rows),
+        "metrics": metrics,
+        "publication_protocol": False,
+        "publication": False,
+    }
 
 
 def execute_formal(*_args, **_kwargs):
     raise FormalRunBlocked(
-        "formal corrected EdNet TRAIN/TEST execution is not authorized in this phase"
+        "formal TRAIN/VALID requires --authorize-formal. "
+        "TEST evaluation is not part of this command."
     )
 
 
@@ -264,9 +378,21 @@ def run_authorized(config: RunConfig, *, dataset_dir: str | Path, runs_dir: str 
     TEST is not read. This phase does not call this function.
     """
 
+    if config.protocol.get("protocol_id") == "ASSISTMENTS2017_MAIN_V1":
+        from kclearner.experiments.assistments_run import run_assistments_formal
+
+        return run_assistments_formal(
+            config,
+            dataset_dir=dataset_dir,
+            runs_dir=runs_dir,
+            requested_device=requested_device,
+        )
+
     from kclearner.experiments.neural_training import fit_neural
 
     dataset = Path(dataset_dir)
+    manifest = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
+    verify_dataset_manifest(manifest, config.protocol, dataset_dir=dataset)
     vocab_payload = json.loads((dataset / "publication_vocab.json").read_text(encoding="utf-8"))
     vocab = attach_learners(
         verify_vocab_file(vocab_payload, config.protocol),
@@ -274,11 +400,17 @@ def run_authorized(config: RunConfig, *, dataset_dir: str | Path, runs_dir: str 
         config.protocol,
     )
     if config.model not in NEURAL_MODELS:
-        return _run_streaming_formal(config, dataset, vocab, runs_dir)
+        return _run_streaming_formal(
+            config,
+            dataset,
+            vocab,
+            runs_dir,
+            requested_device=requested_device,
+        )
     train_rows = _mapped_rows(dataset / "train.parquet", vocab, config)
     valid_rows = _mapped_rows(dataset / "valid.parquet", vocab, config)
     run_dir = Path(runs_dir) / config.run_id
-    return fit_neural(
+    result = fit_neural(
         create_model(
             config.model,
             config,
@@ -302,7 +434,34 @@ def run_authorized(config: RunConfig, *, dataset_dir: str | Path, runs_dir: str 
             "kc_ids_sha256": config.protocol["vocabulary"]["kc_ids_sha256"],
         },
         authorize_formal=True,
+        publication_protocol=bool(config.publication_protocol),
     )
+    _freeze_neural(config, dataset, run_dir, result)
+    return result
+
+
+def _freeze_neural(config, dataset, run_dir, result):
+    from kclearner.experiments.freeze import FreezeError, record_formal_freeze
+    from kclearner.experiments.neural_training import CHECKPOINT_FORMAT
+
+    checkpoint = result.get("checkpoint")
+    metrics = result.get("valid_metrics")
+    if not checkpoint or not isinstance(metrics, dict):
+        raise FreezeError("formal neural run has no frozen checkpoint")
+    if any(metrics.get(name) is None for name in ("nll", "brier", "auc")):
+        raise FreezeError("formal neural run has no frozen VALID metrics")
+    frozen = record_formal_freeze(
+        run_dir,
+        dataset,
+        config,
+        checkpoint,
+        metrics,
+        None,
+        CHECKPOINT_FORMAT,
+        requested_device=result.get("requested_device"),
+        resolved_device=result.get("resolved_device"),
+    )
+    result["freeze_id"] = frozen["freeze_id"]
 
 
 def _smoke_streaming(config: RunConfig, vocab: PublicationVocab, rows: Sequence[Mapping[str, Any]]):
@@ -351,7 +510,13 @@ def _smoke_streaming(config: RunConfig, vocab: PublicationVocab, rows: Sequence[
     return predictions, metrics
 
 
-def _smoke_neural(config: RunConfig, vocab: PublicationVocab, rows: Sequence[Mapping[str, Any]], run_dir: Path):
+def _smoke_neural(
+    config: RunConfig,
+    vocab: PublicationVocab,
+    rows: Sequence[Mapping[str, Any]],
+    run_dir: Path,
+    requested_device: str = "cpu",
+):
     from kclearner.experiments.neural_training import fit_neural
 
     model = create_model(
@@ -395,7 +560,7 @@ def _smoke_neural(config: RunConfig, vocab: PublicationVocab, rows: Sequence[Map
         valid_rows,
         config.protocol["models"][config.model]["recipe"],
         seed=config.seed,
-        requested_device="cpu",
+        requested_device=requested_device,
         run_dir=run_dir,
         config_hash=config.config_hash(),
         dataset_id=config.protocol["dataset"]["dataset_id"],
@@ -406,6 +571,7 @@ def _smoke_neural(config: RunConfig, vocab: PublicationVocab, rows: Sequence[Map
         },
         max_epochs=1,
         authorize_formal=False,
+        publication_protocol=False,
     )
     model.backend.eval()
     replayed = model.replay(mapped)
@@ -438,7 +604,13 @@ def _prediction(row: Mapping[str, Any], probability: float, config: RunConfig) -
     }
 
 
-def _run_streaming_formal(config: RunConfig, dataset: Path, vocab: PublicationVocab, runs_dir: str | Path) -> dict[str, Any]:
+def _run_streaming_formal(
+    config: RunConfig,
+    dataset: Path,
+    vocab: PublicationVocab,
+    runs_dir: str | Path,
+    requested_device: str = "cpu",
+) -> dict[str, Any]:
     model = create_model(
         config.model,
         config,
@@ -451,17 +623,60 @@ def _run_streaming_formal(config: RunConfig, dataset: Path, vocab: PublicationVo
     train = _streaming_rows(dataset / "train.parquet", vocab, config)
     valid = _streaming_rows(dataset / "valid.parquet", vocab, config)
     model.run_streaming(train, phase="train")
-    traced = model.run_streaming(valid, phase="eval")
-    metrics = masked_metrics(
-        [row.correct for row in traced.rows],
-        [row.probability for row in traced.rows],
-        [True for _ in traced.rows],
-    )
     run_dir = Path(runs_dir) / config.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    model.save_state(run_dir / "checkpoint.npz")
-    (run_dir / "metrics.json").write_text(json.dumps(metrics) + "\n", encoding="utf-8")
-    return {"best_epoch": 0, "metrics": metrics}
+    state_path = run_dir / "state_train_only.npz"
+    model.save_state(state_path)
+    traced = model.run_streaming(valid, phase="eval")
+    masks = [True] * len(traced.rows)
+    headline = masked_metrics(
+        [row.correct for row in traced.rows],
+        [row.probability for row in traced.rows],
+        masks,
+    )
+    global_metrics = masked_metrics(
+        [row.correct for row in traced.rows],
+        [row.p_global for row in traced.rows],
+        masks,
+    )
+    from kclearner.experiments.freeze import record_formal_freeze
+    from kclearner.models.state import FORMAT_ID
+
+    devices = execution_device(config.model, requested_device)
+    frozen = record_formal_freeze(
+        run_dir,
+        dataset,
+        config,
+        state_path,
+        headline,
+        global_metrics,
+        FORMAT_ID,
+        requested_device=devices["requested_device"],
+        resolved_device=devices["resolved_device"],
+    )
+    (run_dir / "metrics.json").write_text(
+        json.dumps({
+            **headline,
+            "publication_protocol": True,
+            "publication": True,
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "environment.json").write_text(
+        json.dumps(
+            environment_report(
+                devices["requested_device"],
+                devices["resolved_device"],
+                execution_mode=devices["execution_mode"],
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return {"best_epoch": 0, "metrics": headline, "freeze_id": frozen["freeze_id"]}
 
 
 def _streaming_rows(path: Path, vocab: PublicationVocab, config: RunConfig) -> list[StreamingRow]:
@@ -573,7 +788,14 @@ def _write_predictions(path: Path, rows: Sequence[Mapping[str, Any]], config: Ru
 
 
 def _write_metadata(run_dir: Path, config: RunConfig, *, phase: str, extra: Mapping[str, Any]) -> None:
-    env = environment_report()
+    requested = str(extra.get("requested_device", "cpu"))
+    devices = execution_device(config.model, requested)
+    resolved = extra.get("resolved_device", devices["resolved_device"])
+    env = environment_report(
+        requested,
+        str(resolved),
+        execution_mode=devices["execution_mode"],
+    )
     git_commit = _git_commit()
     payload = {
         "run_id": run_dir.name,
@@ -598,6 +820,9 @@ def _write_metadata(run_dir: Path, config: RunConfig, *, phase: str, extra: Mapp
         "phase": phase,
         "checkpoint_identity": None,
         "config_hash": config.config_hash(),
+        "requested_device": env["requested_device"],
+        "resolved_device": env["resolved_device"],
+        "publication_protocol": False,
         "publication": False,
         "notice": NOT_FOR_PUBLICATION,
     }

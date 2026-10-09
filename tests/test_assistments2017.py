@@ -10,6 +10,7 @@ import numpy as np
 from kclearner.data.adapters.assistments2017 import (
     AssistmentsModelRow,
     bundle_key,
+    execution_group_ids,
     kc_index_tuple,
     load_assistments2017_main_v1,
     oov_behavior,
@@ -101,6 +102,32 @@ class AssistmentsAdapterTests(unittest.TestCase):
         self.assertEqual(loaded.vocabulary.students_sorted, ("10", "2"))
         self.assertEqual(loaded.vocabulary.student_index("10"), 0)
         self.assertEqual(loaded.vocabulary.student_index("2"), 1)
+
+    def test_equal_timestamps_keep_provider_file_order(self) -> None:
+        first = """1,10,s,1,5,1
+1,20,s,0,5,1
+1,30,s,1,9,1
+"""
+        second = """1,20,s,0,5,1
+1,10,s,1,5,1
+1,30,s,1,9,1
+"""
+        forward = load_assistments2017_main_v1(_csv(first))
+        backward = load_assistments2017_main_v1(_csv(second))
+        self.assertEqual(
+            [row.item_id for row in forward.interactions if row.timestamp == 5],
+            ["10", "20"],
+        )
+        self.assertEqual(
+            [row.item_id for row in backward.interactions if row.timestamp == 5],
+            ["20", "10"],
+        )
+        self.assertEqual(forward.source_indexes[0], 0)
+        self.assertEqual(forward.source_indexes[1], 1)
+        self.assertLess(
+            forward.source_indexes[0],
+            forward.source_indexes[1],
+        )
 
     def test_kc_tuple_stays_one_interaction(self) -> None:
         indexes = kc_index_tuple(("ratio", "area", "ratio"), {"area": 0, "ratio": 1})
@@ -246,6 +273,69 @@ class AssistmentsAdapterTests(unittest.TestCase):
             model = ARKTModel.load_legacy_checkpoint(path)
         self.assertEqual(model.residual_update, "assistments_skill_mean")
         self.assertEqual(model.eta_r, 0.20)
+
+    def test_missing_test_groups_follow_learner_timestamp(self) -> None:
+        filled = execution_group_ids(
+            [("8", 10), ("8", 10), ("8", 11)],
+            [None, None, None],
+        )
+        self.assertEqual(filled, (0, 0, 1))
+        self.assertEqual(execution_group_ids([("8", 10)], [4]), (4,))
+        self.assertFalse(oov_behavior("irt").state_transparent)
+        self.assertTrue(oov_behavior("dkt_q").state_transparent)
+
+        def probabilities(groups: tuple[int, int]) -> tuple[float, float]:
+            model = IRTModel(1, 2, n_skills=1)
+            traced = model.run_streaming(
+                [
+                    StreamingRow(0, 0, groups[0], 1, (), "a", 10, 10),
+                    StreamingRow(0, 1, groups[1], 1, (), "b", 11, 11),
+                ],
+                phase="eval",
+            )
+            return (traced.rows[0].probability, traced.rows[1].probability)
+
+        collapsed = probabilities((-1, -1))
+        separated = probabilities((filled[0], filled[2]))
+        self.assertEqual(collapsed[0], collapsed[1])
+        self.assertNotEqual(separated[0], separated[1])
+
+    def test_rowwise_bundles_change_the_dataset_logical_hash(self) -> None:
+        from dataclasses import replace
+        from pathlib import Path
+
+        from kclearner.data.assistments_prepare import logical_identity_for
+        from kclearner.data.logical_identity import dataset_logical_hash
+        from kclearner.experiments.config import load_protocol
+
+        loaded = load_assistments2017_main_v1(_csv(
+            "1,10,skill,1,100,1\n"
+            "1,11,skill,0,100,1\n"
+            "1,12,skill,1,200,1\n"
+            "2,10,skill,1,100,1\n"
+            "2,13,skill,0,300,1\n"
+        ))
+        shared = [
+            row for row in loaded.interactions
+            if row.learner_id == "1" and int(row.timestamp) == 100
+        ]
+        self.assertGreaterEqual(len(shared), 2)
+        self.assertEqual({row.bundle_id for row in shared}, {bundle_key("1", 100)})
+        protocol = load_protocol(
+            Path(__file__).resolve().parents[1] / "configs" / "assistments2017" / "protocol.json",
+            dataset="assistments2017",
+        )
+        bundled = dataset_logical_hash(logical_identity_for(loaded, protocol))
+        rowwise = replace(
+            loaded,
+            interactions=tuple(
+                replace(row, bundle_id=row.interaction_id) for row in loaded.interactions
+            ),
+        )
+        self.assertNotEqual(
+            bundled,
+            dataset_logical_hash(logical_identity_for(rowwise, protocol)),
+        )
 
 
 if __name__ == "__main__":

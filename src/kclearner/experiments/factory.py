@@ -34,6 +34,16 @@ def create_model(name: str, config: RunConfig, vocab: Mapping[str, int]):
             freeze_global_in_eval=bool(recipe["freeze_global_in_eval"]),
         )
     if name == "ar_kt":
+        residual = recipe.get("residual_update")
+        if residual not in ("ednet_token", "assistments_skill_mean"):
+            raise ValueError(
+                "AR-KT recipe must set residual_update to "
+                "'ednet_token' or 'assistments_skill_mean'"
+            )
+        if bool(recipe.get("use_time", False)):
+            raise ValueError(
+                "AR-KT time decay is not implemented; use_time must be false"
+            )
         return ARKTModel(
             n_students,
             n_items,
@@ -45,7 +55,7 @@ def create_model(name: str, config: RunConfig, vocab: Mapping[str, int]):
             b_l2=float(recipe["b_l2"]),
             learn_b=bool(recipe["learn_b"]),
             freeze_global_in_eval=bool(recipe["freeze_global_in_eval"]),
-            residual_update="ednet_token",
+            residual_update=residual,
         )
     if name in NEURAL_MODELS:
         return _create_neural(name, recipe, n_items, n_kcs)

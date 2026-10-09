@@ -33,18 +33,24 @@ class DeviceError(RuntimeError):
 
 
 def resolve_device(requested: str):
-    import torch
-
     name = requested.strip().lower()
+    if name not in ("auto", "cpu", "cuda"):
+        raise DeviceError(f"device must be auto, cpu, or cuda, got {requested!r}")
+    try:
+        import torch
+    except Exception as exc:
+        if name == "cuda":
+            raise DeviceError(
+                "device=cuda was requested but CUDA is not available"
+            ) from exc
+        raise
     if name == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if name == "cpu":
         return torch.device("cpu")
-    if name == "cuda":
-        if not torch.cuda.is_available():
-            raise DeviceError("device=cuda was requested but CUDA is not available")
-        return torch.device("cuda")
-    raise DeviceError(f"device must be auto, cpu, or cuda, got {requested!r}")
+    if not torch.cuda.is_available():
+        raise DeviceError("device=cuda was requested but CUDA is not available")
+    return torch.device("cuda")
 
 
 def seed_everything(seed: int) -> None:
@@ -296,6 +302,7 @@ def fit_neural(
     vocab_hashes: dict,
     max_epochs: int | None = None,
     authorize_formal: bool = False,
+    publication_protocol: bool = False,
 ) -> dict:
     """Train until early stopping. Refuses a full-size formal run unless authorized."""
 
@@ -304,6 +311,8 @@ def fit_neural(
     if not authorize_formal and len(train_rows) > SMOKE_ROW_CAP:
         raise FormalRunBlocked("formal neural TRAIN is not authorized")
     device = resolve_device(requested_device)
+    resolved_name = "cuda" if device.type == "cuda" else "cpu"
+    formal_protocol = bool(publication_protocol) and bool(authorize_formal)
     seed_everything(seed)
     model.backend.to(device)
     epochs = int(recipe["max_epochs"] if max_epochs is None else max_epochs)
@@ -318,11 +327,27 @@ def fit_neural(
     rng = np.random.default_rng(seed)
     run_path = Path(run_dir)
     run_path.mkdir(parents=True, exist_ok=True)
+    from kclearner.experiments.environment import environment_report
+
+    (run_path / "environment.json").write_text(
+        json.dumps(
+            environment_report(
+                requested_device,
+                resolved_name,
+                execution_mode="neural",
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     log_path = run_path / "training_log.csv"
     log_path.write_text(
         "epoch,train_loss,valid_nll,valid_brier,valid_auc,best_valid_auc,improved,patience_counter,elapsed_seconds\n",
         encoding="utf-8",
     )
+    saved_checkpoint = None
     history = []
     for epoch in range(epochs):
         started = time.perf_counter()
@@ -339,8 +364,9 @@ def fit_neural(
         )
         did_improve = stopper.best_auc != before or stopper.best_epoch == epoch and stopper.patience_counter == 0
         if stopper.best_epoch == epoch and stopper.patience_counter == 0:
+            saved_checkpoint = run_path / f"best_checkpoint_epoch_{epoch:03d}.pt"
             _save_checkpoint(
-                run_path / f"best_checkpoint_epoch_{epoch:03d}.pt",
+                saved_checkpoint,
                 model,
                 optimizer,
                 epoch,
@@ -351,6 +377,7 @@ def fit_neural(
                 cohort_hash,
                 vocab_hashes,
                 recipe,
+                publication_protocol=formal_protocol,
             )
         elapsed = time.perf_counter() - started
         row = {
@@ -372,10 +399,23 @@ def fit_neural(
             )
         if stop:
             break
-    return {"history": history, "best_epoch": stopper.best_epoch, "best_valid_auc": stopper.best_auc}
+    return {
+        "history": history,
+        "best_epoch": stopper.best_epoch,
+        "best_valid_auc": stopper.best_auc,
+        "checkpoint": None if saved_checkpoint is None else str(saved_checkpoint),
+        "valid_metrics": None if stopper.best_epoch < 0 else {
+            "nll": stopper.best_nll,
+            "brier": stopper.best_brier,
+            "auc": stopper.best_auc,
+        },
+        "requested_device": requested_device,
+        "resolved_device": resolved_name,
+        "publication_protocol": formal_protocol,
+    }
 
 
-def _save_checkpoint(path, model, optimizer, epoch, stopper, seed, config_hash, dataset_id, cohort_hash, vocab_hashes, recipe) -> None:
+def _save_checkpoint(path, model, optimizer, epoch, stopper, seed, config_hash, dataset_id, cohort_hash, vocab_hashes, recipe, publication_protocol: bool = False) -> None:
     import torch
 
     torch.save(
@@ -396,8 +436,9 @@ def _save_checkpoint(path, model, optimizer, epoch, stopper, seed, config_hash, 
             "cohort_hash": cohort_hash,
             "vocab_hashes": vocab_hashes,
             "dimensions": _dimensions(model, recipe),
-            "publication": False,
-            "notice": "NOT FOR PUBLICATION",
+            "publication_protocol": bool(publication_protocol),
+            "publication": bool(publication_protocol),
+            "notice": None if publication_protocol else "NOT FOR PUBLICATION",
         },
         str(path),
     )

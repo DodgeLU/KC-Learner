@@ -31,7 +31,7 @@ from kclearner.data.validation import (
 from kclearner.models import ARKTModel, IRTModel, StreamingRow
 from kclearner.sequence.contract import BundleStepRecord, replay_bundle_pre_state
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "CORRECTED_PREPROCESSING_ID",

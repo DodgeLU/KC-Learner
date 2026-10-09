@@ -14,7 +14,7 @@ venv/
 # Third-party data and experiment outputs are not part of the release.
 generated/
 runs/
-data/
+/data/
 checkpoints/
 *.parquet
 *.pt

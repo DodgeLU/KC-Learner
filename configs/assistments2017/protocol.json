@@ -1,0 +1,176 @@
+{
+  "protocol_id": "ASSISTMENTS2017_MAIN_V1",
+  "dataset_key": "assistments2017",
+  "run_id_prefix": "assistments2017",
+  "publication_seeds": [42, 43, 44, 45, 46],
+  "publication_seed_policy": "closed_set",
+  "nominal_accepted_rows": {
+    "field": "dataset.row_counts.eligible",
+    "count": 428495,
+    "meaning": "Accepted canonical TRAIN + VALID + nominal TEST rows. This is not metric_eligible_rows 427546 and not metric-eligible TEST 84792."
+  },
+  "device": "auto",
+  "dataset": {
+    "dataset_id": "assistments2017",
+    "preprocessing_version": "assist17_primary_v1",
+    "cohort_id": "assistments2017_main_v1_train_valid_learners",
+    "split_id": "assist17_b_temporal_bundle_safe_v1",
+    "split_base": "B_temporal_v1",
+    "enforce_frozen_counts": true,
+    "row_counts": {
+      "train": 299907,
+      "valid": 42847,
+      "test": 85741,
+      "eligible": 428495
+    },
+    "learners": 1709,
+    "train_valid_problems": 2909,
+    "kcs": 102,
+    "nominal_test_item_oov": 949,
+    "metric_eligible_test": 84792
+  },
+  "vocabulary": {
+    "vocab_id": "assist17_train_valid_problem_skill_v1",
+    "source_partitions": ["train", "valid"],
+    "test_included": false,
+    "item_count": 2909,
+    "kc_count": 102,
+    "learner_count": 1709,
+    "item_ids_sha256": "3717448c8a379d4608e821ca4a78b5ff59c9e5af709ef0c4cb4d98e5de52969a",
+    "kc_ids_sha256": "230fa310cf1f1cb351f99b26a6f338337f228db4ababf908820cad343734edb8",
+    "learner_ids_sha256": "58a3aafd1f8895d0f506c8baa6bdaa17cfad6ddd67cb0dd4a2bbe813ada0ebfa",
+    "item_index_rule": "lexicographic problem_id string over TRAIN+VALID",
+    "kc_index_rule": "lexicographic skill_id string over TRAIN+VALID",
+    "learner_index_rule": "lexicographic student_id string over TRAIN+VALID"
+  },
+  "sequence": {
+    "order": "student_id, timestamp, source_row",
+    "bundle": "(student_id, timestamp)",
+    "update": "predict every row in the bundle from the pre-bundle state, then update"
+  },
+  "metrics": ["nll", "brier", "auc"],
+  "phases": ["train", "valid"],
+  "recipe_provenance": {
+    "irt": "project_c/train/train_assist2017_irt_main_v1.py constants THETA_LR=0.05, B_LR=0.02, THETA_L2=1e-4, B_L2=1e-4, eta_r=0. Seed 42 is recorded only.",
+    "ar_kt": "project_c/train/train_assist2017_ar_kt_main_v1.py FROZEN_ETA_R=0.20, use_time=False, learn_b=True, freeze_global_in_eval=True, and the same learning-rate constants. Residual update is assistments_skill_mean.",
+    "dkt": "project_c/train/run_assist_dkt_pair_full.py sets cfg = EdNetDKTConfig(). _assist_dkt_full_runner.train_one_epoch steps Adam without gradient clipping. Publication seeds are PROJECT_C_PAIRED_SEEDS_V1 = [42, 43, 44, 45, 46] from research_registry/ASSISTMENTS2017_MAIN_V1.md and the runner help text.",
+    "dkvmn": "project_c/train/run_assist_dkvmn_pair_full.py sets cfg = EdNetDKVMNConfig(), including gradient_clipping=False. The same five publication seeds apply."
+  },
+  "models": {
+    "irt": {
+      "family": "irt",
+      "kc_aware": false,
+      "deterministic": true,
+      "provenance_seed": 42,
+      "recipe": {
+        "theta_lr": 0.05,
+        "b_lr": 0.02,
+        "theta_l2": 0.0001,
+        "b_l2": 0.0001,
+        "learn_b": true,
+        "freeze_global_in_eval": true,
+        "use_residual": false,
+        "eta_r": 0.0
+      }
+    },
+    "ar_kt": {
+      "family": "ar_kt",
+      "kc_aware": true,
+      "deterministic": true,
+      "provenance_seed": 42,
+      "recipe": {
+        "eta_r": 0.2,
+        "use_time": false,
+        "residual_update": "assistments_skill_mean",
+        "theta_lr": 0.05,
+        "b_lr": 0.02,
+        "theta_l2": 0.0001,
+        "b_l2": 0.0001,
+        "learn_b": true,
+        "freeze_global_in_eval": true
+      }
+    },
+    "dkt_q": {
+      "family": "dkt",
+      "kc_aware": false,
+      "deterministic": false,
+      "recipe": {
+        "emb_size": 200,
+        "hidden_size": 200,
+        "num_lstm_layers": 1,
+        "dropout": 0.1,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "weight_decay": 0.0,
+        "effective_chunk_size": 256,
+        "tbptt_target_rows": 200,
+        "max_epochs": 200,
+        "early_stop_patience_epochs": 10,
+        "checkpoint_metric": "valid_auc",
+        "checkpoint_min_delta": 0.001,
+        "gradient_clipping": "NONE"
+      }
+    },
+    "dkt_qc": {
+      "family": "dkt",
+      "kc_aware": true,
+      "deterministic": false,
+      "recipe": {
+        "emb_size": 200,
+        "hidden_size": 200,
+        "num_lstm_layers": 1,
+        "dropout": 0.1,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "weight_decay": 0.0,
+        "effective_chunk_size": 256,
+        "tbptt_target_rows": 200,
+        "max_epochs": 200,
+        "early_stop_patience_epochs": 10,
+        "checkpoint_metric": "valid_auc",
+        "checkpoint_min_delta": 0.001,
+        "gradient_clipping": "NONE"
+      }
+    },
+    "dkvmn_q": {
+      "family": "dkvmn",
+      "kc_aware": false,
+      "deterministic": false,
+      "recipe": {
+        "dim_s": 64,
+        "size_m": 20,
+        "dropout": 0.2,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "weight_decay": 0.0,
+        "effective_chunk_size": 256,
+        "tbptt_target_rows": 200,
+        "max_epochs": 200,
+        "early_stop_patience_epochs": 10,
+        "checkpoint_metric": "valid_auc",
+        "checkpoint_min_delta": 0.001,
+        "gradient_clipping": "NONE"
+      }
+    },
+    "dkvmn_qc": {
+      "family": "dkvmn",
+      "kc_aware": true,
+      "deterministic": false,
+      "recipe": {
+        "dim_s": 64,
+        "size_m": 20,
+        "dropout": 0.2,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "weight_decay": 0.0,
+        "effective_chunk_size": 256,
+        "tbptt_target_rows": 200,
+        "max_epochs": 200,
+        "early_stop_patience_epochs": 10,
+        "checkpoint_metric": "valid_auc",
+        "checkpoint_min_delta": 0.001,
+        "gradient_clipping": "NONE"
+      }
+    }
+  }
+}
