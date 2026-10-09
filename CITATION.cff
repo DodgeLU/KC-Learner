@@ -2,8 +2,9 @@ cff-version: 1.2.0
 message: If you use this software, please cite it using the metadata from this file.
 title: KC-Learner
 type: software
-version: 0.1.0
-doi: 10.5281/zenodo.23227279
+version: 0.2.0
+date-released: 2026-10-09
+doi: 10.5281/zenodo.23265408
 license: MIT
 repository-code: https://github.com/DodgeLU/KC-Learner
 authors:

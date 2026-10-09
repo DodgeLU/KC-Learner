@@ -2,7 +2,7 @@
 
 Reproducible framework for knowledge-component-aware sequential learner modeling across heterogeneous model representations.
 
-The Python package name is `kclearner`. The version recorded in `pyproject.toml` and `kclearner.__version__` is `0.2.0`. The archived Zenodo citation remains Version 0.1.0.
+The Python package name is `kclearner`. The version recorded in `pyproject.toml` and `kclearner.__version__` is `0.2.0`. The Zenodo archive for this release is [10.5281/zenodo.23265408](https://doi.org/10.5281/zenodo.23265408).
 
 ## Overview
 
@@ -306,9 +306,13 @@ integration/            optional local regression; skips if artifacts are absent
 
 ## Citation
 
-If you use KC-Learner in research, please cite the archived software release:
+If you use KC-Learner in research, please cite this release:
 
-Fu X, Chen Z, Lu W. KC-Learner. Version 0.1.0. Zenodo. https://doi.org/10.5281/zenodo.23227279
+KC-Learner v0.2.0 — https://doi.org/10.5281/zenodo.23265408
+
+Fu X, Chen Z, Lu W. KC-Learner. Version 0.2.0. Zenodo. https://doi.org/10.5281/zenodo.23265408
+
+The previous release remains KC-Learner v0.1.0 — https://doi.org/10.5281/zenodo.23227279
 
 Citation metadata are also available in [`CITATION.cff`](CITATION.cff).
 
@@ -324,7 +328,7 @@ Questions about KC-Learner: luwentao@sairi.com.cn
 
 ## Limitations / scope
 
-- The archived citation is v0.1.0. This working tree's prepare/freeze/evaluate workflow is not that archive.
+- The Zenodo archive for this release is KC-Learner v0.2.0. The v0.1.0 archive remains the record of that earlier release.
 - The public interface is the Python package, the examples, and the CLI above. External formal freeze and TEST are Python functions, not CLI commands. Protocol values live in `configs/*/protocol.json`.
 - Extensions run under declared contracts. They do not add automatic raw-dataset interpretation or a claim that an external model generalizes. See [Extending KC-Learner](#extending-kc-learner).
 - Default CLI invocation without `--dry-run` or `--smoke` does not run a full experiment; the formal entry point is blocked unless explicitly authorized.
