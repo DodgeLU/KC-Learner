@@ -1,12 +1,12 @@
 # KC-Learner
 
-Reproducible framework for knowledge-component-aware sequential learner modeling across heterogeneous model representations.
+KC-Learner is reproducible experimental infrastructure for knowledge-component-aware sequential learner modeling, with a focus on research workflows in educational data mining (EDM) and artificial intelligence in education (AIED).
 
 The Python package name is `kclearner`. The version recorded in `pyproject.toml` and `kclearner.__version__` is `0.2.0`. The Zenodo archive for this release is [10.5281/zenodo.23265408](https://doi.org/10.5281/zenodo.23265408).
 
 ## Overview
 
-KC-Learner is research software for running learner–item–response–knowledge-component logs through a shared experiment path. It standardizes interaction records, keeps dataset-specific knowledge-component encodings explicit, and runs several existing learner-model families without forcing them to share one internal mathematical implementation.
+KC-Learner is research software for running learner–item–response–knowledge-component logs through a shared experiment path. It makes data semantics, execution assumptions, evaluation conditions, and provenance explicit, supporting reproducible replication, comparison, and extension of learner-modeling experiments. It standardizes interaction records, keeps dataset-specific knowledge-component encodings explicit, and runs several existing learner-model families without forcing them to share one internal mathematical implementation.
 
 It is not a learning-management system, a student-facing tutor, a recommendation system, or a new state-of-the-art knowledge-tracing algorithm.
 
