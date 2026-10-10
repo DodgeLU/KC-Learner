@@ -10,6 +10,27 @@ KC-Learner is research software for running learner–item–response–knowledg
 
 It is not a learning-management system, a student-facing tutor, a recommendation system, or a new state-of-the-art knowledge-tracing algorithm.
 
+## Workflow
+
+KC-Learner has three usage levels. They do not share one raw-data loader.
+
+1. Installation and interface verification. This checks the canonical interaction representation. It does not train the bundled models.
+
+```bash
+pip install -e .
+python examples/toy_dataset.py
+```
+
+Expected first line:
+
+```text
+interactions=7 targets=7 ok=True
+```
+
+2. Reference datasets. EdNet-KT1 and ASSISTments 2017 each have a source-faithful adapter and a `prepare` command. Do not convert those raw files into the external canonical directory by hand. Preparation writes dataset-specific artifacts, including Parquet splits, manifests, vocabularies, and provenance records. Commands are in [Data availability and third-party datasets](#data-availability-and-third-party-datasets).
+
+3. External extensions. A dataset from outside those two adapters must already satisfy the canonical dataset contract. KC-Learner does not convert an arbitrary raw educational archive. The user supplies the interaction records, vocabulary files, split roles, bundle semantics, metric-eligibility semantics, OOV representation semantics, and provenance. See [Extending KC-Learner](#extending-kc-learner).
+
 ## Key features
 
 - One interaction remains one prediction target, including items with several knowledge components.
@@ -17,7 +38,7 @@ It is not a learning-management system, a student-facing tutor, a recommendation
 - EdNet-KT1 and ASSISTments 2017 adapters, plus a synthetic dataset that does not read those sources.
 - Source order and repeated knowledge-component tokens are preserved. A missing EdNet tag is an empty `kc_ids` tuple, not an invented `UNKNOWN_KC`.
 - Bundle-aware sequential execution, including predict-before-update behavior.
-- Six model variants across three families, selected from one corrected-EdNet protocol file.
+- Six bundled reference models. Question-only and KC-aware pairs exist only for the bundled DKT and DKVMN variants.
 - Run artifacts that record the config hash, environment, and dataset identity.
 - Unit and semantic tests on synthetic data. Local regression checks stay outside the default test command.
 
@@ -29,7 +50,18 @@ The families do not share one internal update rule.
 - Recurrent: `dkt_q`, `dkt_qc`
 - Memory-augmented: `dkvmn_q`, `dkvmn_qc`
 
-`Q` variants do not consume knowledge-component ids. `QC` variants do. IRT and AR-KT are deterministic; seed 42 is stored as provenance only. Formal neural runs accept only the frozen publication seeds: EdNet `42, 43, 44` and ASSISTments `42, 43, 44, 45, 46`. Dry-run and smoke may use another integer seed, and those runs set `publication_protocol` to false. LSTM and DKVMN modules come from `pykt-toolkit==0.0.38` when the neural extra is installed.
+| Model | Family | KC-aware comparison |
+| --- | --- | --- |
+| IRT | Psychometric | Residual layer off. The prediction is learner ability minus item difficulty. |
+| AR-KT | Psychometric | KC residual on the same streaming state |
+| DKT-Q | Recurrent | Question-response only |
+| DKT-QC | Recurrent | KC interaction representation |
+| DKVMN-Q | Memory-augmented | Question-response only |
+| DKVMN-QC | Memory-augmented | KC embedding used when that variant is selected |
+
+`Q` variants do not consume knowledge-component ids. `QC` variants do. KC-Learner does not automatically generate a Q version and a QC version for an arbitrary model. Those paired comparisons are implemented only for the bundled DKT and DKVMN classes. A new external model must supply its own KC-aware implementation and its own non-KC implementation when that comparison is wanted.
+
+IRT and AR-KT are deterministic; seed 42 is stored as provenance only. Formal neural runs accept only the frozen publication seeds: EdNet `42, 43, 44` and ASSISTments `42, 43, 44, 45, 46`. Dry-run and smoke may use another integer seed, and those runs set `publication_protocol` to false. LSTM and DKVMN modules come from `pykt-toolkit==0.0.38` when the neural extra is installed.
 
 ## Supported datasets
 
@@ -44,7 +76,9 @@ KC-Learner can run two kinds of extension beside the reference datasets and the 
 1. External canonical datasets.
 2. External learner-model adapters.
 
-An external dataset enters only after the user has turned raw records into the canonical interaction contract. KC-Learner does not read an arbitrary raw archive and infer that contract. An external model enters only by implementing one of the two adapter contracts. A Python class that can be imported is not, by itself, a formal experiment.
+Externally prepared canonical datasets can be integrated through the dataset contract. KC-Learner does not read an arbitrary raw archive and infer that contract. The directory must already contain interaction records, ordered learner, item, and KC vocabularies, split roles, bundle semantics, metric-eligibility semantics, OOV representation semantics, and provenance.
+
+External models participate through representation-specific adapter contracts. The two families are psychometric streaming and neural bundle. Following a contract means the implementation declares execution, traversal, checkpoint, and OOV-state semantics and returns probabilities in the runner's row order. It does not mean automatic benchmark compatibility, automatic Q/QC generation, predictive equivalence with a bundled model, or superiority over the bundled models. A Python class that can be imported is not, by itself, a formal experiment.
 
 The software guarantees controlled execution and comparison under the contracts that the dataset and the adapter declare. It does not guarantee that every model works well on every dataset, that every external dataset is automatically compatible, or that an external implementation generalizes.
 
@@ -78,7 +112,7 @@ python -m kclearner.experiments.cli prepare --dataset ednet_kt1 --raw-dir /path/
 
 Historical EdNet IRT and AR-KT checkpoints were trained on `ednet_kt1_preproc_v1` split parquets, not on this corrected order. Those predictive numbers are not an oracle for the corrected dataset. See `docs/historical_psychometric_outputs.md`.
 
-The question table's `bundle_id` is content identity. The interaction bundle is `(learner_id, solving_id)`.
+The question table's `bundle_id` is content identity. The interaction bundle is `(learner_id, solving_id)`. Preparation keeps learner interaction order, multi-KC tag order and repeats, and writes a missing EdNet tag as an empty KC tuple rather than an invented id. This directory is the reference artifact. It is not the external canonical dataset directory.
 
 ### ASSISTments 2017
 
@@ -88,13 +122,13 @@ https://sites.google.com/view/assistmentsdatamining/dataset
 
 That page states that access requires signup, that the dataset link is sent by email, and that use requires agreement to the provider's Terms of Use. The page text fetched for this release does not include a stable form URL, so this README does not invent one.
 
-`load_assistments2017_main_v1` expects columns `student_id`, `problem_id`, `skill_id`, `correct`, `timestamp`, and `attempt_count`. There is no required path inside this repository. Blank skills are dropped and counted.
+`load_assistments2017_main_v1` expects columns `student_id`, `problem_id`, `skill_id`, `correct`, `timestamp`, and `attempt_count`. There is no required path inside this repository.
 
 ```bash
 python -m kclearner.experiments.cli prepare --dataset assistments2017 --raw-file /path/to/primary.csv
 ```
 
-This also requires `pyarrow`. The default output is `generated/assistments2017_main_v1/`. Rows are ordered by `student_id`, then `timestamp`, then source-file order. The execution bundle is `(student_id, timestamp)`.
+This also requires `pyarrow`. The default output is `generated/assistments2017_main_v1/`. Rows with `attempt_count` other than 1 are excluded. Blank skills are dropped and counted. Retained rows are ordered by `student_id`, then `timestamp`, then source-file order, and the vocabulary is built from those rows. The execution bundle is `(student_id, timestamp)`. TRAIN and VALID rows that fall inside that vocabulary are metric-eligible. On TEST, a row outside the TRAIN+VALID problem, skill, or learner vocabulary is not metric-eligible. This directory is the reference artifact. It is not the external canonical dataset directory.
 
 On ASSISTments TEST, 949 item-OOV rows stay in the IRT and AR-KT sequence, use problem index 0, and are excluded from metrics. DKT and DKVMN drop those same rows from state and from metrics. The two rules are intentionally different.
 
@@ -152,6 +186,8 @@ Expected first line:
 ```text
 interactions=7 targets=7 ok=True
 ```
+
+That command checks the interaction representation and bundle pre-state. It does not train IRT, AR-KT, DKT, or DKVMN.
 
 ### Full dataset experiments
 
@@ -231,6 +267,10 @@ A dry-run writes a directory under `runs/<run_id>/` (or `--runs-dir`):
 - `dry_run.json`: identity check and whether the model was constructed
 
 These artifacts are marked `publication: false`. `runs/` is gitignored.
+
+A smoke or formal run may also write predictions, `metrics.json`, a checkpoint (`checkpoint.npz`, `state_train_only.npz`, or `best_checkpoint_epoch_*.pt`), `training_log.csv`, and a copy of the dataset manifest. Metadata records the package version, dataset identity, config hash, and environment. External formal runs add an implementation fingerprint and write `checkpoint_train_only.json` plus `external_freeze_manifest.json`.
+
+Reference and external formal evaluation follow the same gate order: a TRAIN-only checkpoint, then VALID replay or VALID evidence, then an experiment freeze, then a separately authorized TEST evaluation. TEST does not start as part of TRAIN. Reference TEST uses `evaluate --enable-test-execution`. External TEST uses `authorize_external_test` in Python, with `enable_test=True`.
 
 ## Reproducibility and provenance
 
@@ -326,6 +366,14 @@ EdNet, ASSISTments, and any other third-party dataset are not covered by the KC-
 
 Questions about KC-Learner: luwentao@sairi.com.cn
 
+## Current limitations
+
+- KC-Learner does not automatically interpret arbitrary raw educational datasets.
+- External datasets require canonical preparation before they can be loaded.
+- External models require an explicit psychometric-streaming or neural-bundle adapter.
+- Q/QC comparisons are not generated automatically. They exist only where a bundled reference model implements both variants.
+- The software is experimental infrastructure for declared contracts. It is not a universal learner-model benchmark.
+
 ## Limitations / scope
 
 - The Zenodo archive for this release is KC-Learner v0.2.0. The v0.1.0 archive remains the record of that earlier release.
@@ -335,4 +383,4 @@ Questions about KC-Learner: luwentao@sairi.com.cn
 - Corrected-EdNet dry-run and smoke require a locally built dataset directory that is not distributed here.
 - Neural training depends on the optional PyTorch and pyKT extra.
 - This release does not publish new corrected-EdNet predictive results.
-- Knowledge-component fields are carried and used by the KC-aware variants. That is a software capability, not a claim that knowledge-component information has been shown to improve learner modeling.
+- KC-aware behavior is limited to the bundled variants that implement it. Carrying KC fields is not a claim that KC information improves learner modeling, and it does not create a KC-aware twin for an external model.
